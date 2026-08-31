@@ -1,8 +1,9 @@
 // Centralized hooks for derived data lookups used across modules.
 import { useMemo } from 'react';
-import { useStore, getCurrentUserId } from '../data/store';
+import { useStore } from '../data/store';
+import { useAuth } from '../lib/auth';
 import { isOverdue, sum } from '../lib/utils';
-import type { User } from '../types';
+import type { Profile } from '../types';
 
 export function useLookups() {
   const { db } = useStore();
@@ -152,15 +153,11 @@ export function useVehicleBookedDates() {
 }
 
 /**
- * Resolve the currently active user.
- * Falls back to the first user (prototype default) when no explicit selection exists.
+ * Resolve the currently active user from Supabase Auth.
+ * Returns the Profile row for the authenticated user.
  */
-export function useCurrentUser(): User | null {
-  const { db } = useStore();
-  return useMemo(() => {
-    const id = getCurrentUserId();
-    const found = db.users.find((u) => u.id === id);
-    return found ?? db.users[0] ?? null;
-  }, [db.users]);
+export function useCurrentUser(): Profile | null {
+  const { profile } = useAuth();
+  return profile;
 }
 

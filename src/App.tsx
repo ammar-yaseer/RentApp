@@ -1,8 +1,10 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
+import { useAuth } from './lib/auth';
 import { useCurrentUser } from './lib/hooks';
 import { canView, visibleNavItems } from './lib/permissions';
+import Login from './modules/Login';
 
 const Dashboard = lazy(() => import('./modules/Dashboard'));
 const Vehicles = lazy(() => import('./modules/Vehicles'));
@@ -46,6 +48,22 @@ function Guard({ moduleKey, children }: { moduleKey: string; children: ReactNode
 }
 
 export default function App() {
+  const { profile, loading } = useAuth();
+
+  // Show loading spinner while auth state is being determined
+  if (loading) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Not signed in → show login page
+  if (!profile) {
+    return <Login />;
+  }
+
   return (
     <AppShell>
       <Suspense fallback={<Loading />}>

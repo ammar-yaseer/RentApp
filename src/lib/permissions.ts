@@ -2,10 +2,13 @@
 // Permissions are stored per-user (User.permissions) keyed by NavItem.key.
 // Users without a `permissions` field (legacy / pre-RBAC) retain full access
 // so existing localStorage data is not broken on upgrade.
-import type { User, UserPermissions, ModulePermissions, PermissionAction } from '../types';
+import type { User, Profile, UserPermissions, ModulePermissions, PermissionAction } from '../types';
 import { NAV_ITEMS } from '../components/nav';
 
 export type { PermissionAction, ModulePermissions, UserPermissions };
+
+/** Union type for any user-like object (User or Profile). */
+type UserLike = User | Profile;
 
 /** All module keys derived from the navigation config (single source of truth). */
 export const ALL_MODULE_KEYS: string[] = NAV_ITEMS.map((n) => n.key);
@@ -41,7 +44,7 @@ export function normalizePermissions(partial?: UserPermissions | null): UserPerm
 
 /** Core permission check. */
 export function can(
-  user: User | null | undefined,
+  user: UserLike | null | undefined,
   moduleKey: string,
   action: PermissionAction,
 ): boolean {
@@ -52,15 +55,15 @@ export function can(
   return !!p?.[action];
 }
 
-export function canView(user: User | null | undefined, moduleKey: string): boolean {
+export function canView(user: UserLike | null | undefined, moduleKey: string): boolean {
   return can(user, moduleKey, 'view');
 }
 
 /** Navigation items visible to the user (view permission on the module). */
-export function visibleNavItems(user: User | null | undefined) {
+export function visibleNavItems(user: UserLike | null | undefined) {
   return NAV_ITEMS.filter((n) => canView(user, n.key));
 }
 
-export function hasAnyAccess(user: User | null | undefined): boolean {
+export function hasAnyAccess(user: UserLike | null | undefined): boolean {
   return visibleNavItems(user).length > 0;
 }

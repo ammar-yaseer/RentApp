@@ -155,7 +155,7 @@ export interface BookingDocument {
   id: ID;
   name: string;
   type: string; // e.g. "NIC", "Driving License", "Passport", "Other"
-  dataUrl: string; // base64 data URL
+  url: string; // Storage URL (was base64 data URL in prototype)
   uploadedAt: ISODate;
 }
 
@@ -529,6 +529,18 @@ export interface User {
   email: string;
   role: UserRole;
   permissions?: UserPermissions; // per-module action permissions (RBAC)
+  active: boolean;
+  lastLogin?: ISODate;
+  createdAt: ISODate;
+}
+
+/** Profile row — links auth.users to app roles/permissions. Replaces User for Supabase. */
+export interface Profile {
+  id: string; // uuid from auth.users
+  name: string;
+  email: string;
+  role: UserRole;
+  permissions: UserPermissions;
   active: boolean;
   lastLogin?: ISODate;
   createdAt: ISODate;

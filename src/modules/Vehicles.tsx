@@ -14,7 +14,8 @@ import { StatusBadge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { Tabs } from '../components/ui/Tabs';
 import { SearchInput } from '../components/ui/Tabs';
-import { uid, nowISO, formatCurrency, formatDate, cn, compressImage } from '../lib/utils';
+import { uid, nowISO, formatCurrency, formatDate, cn } from '../lib/utils';
+import { uploadImage } from '../lib/storage';
 
 const STATUSES: VehicleStatus[] = ['Available', 'Reserved', 'Rented', 'Inspection', 'Maintenance', 'Accident', 'Repair', 'Inactive', 'Sold'];
 
@@ -311,8 +312,8 @@ function VehicleForm({ vehicle, onClose, onSave }: { vehicle: Vehicle | null; on
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const dataUrl = await compressImage(file);
-      set('photoUrl', dataUrl);
+      const url = await uploadImage('vehicle-photos', `${form.id ?? uid('vh')}.jpg`, file);
+      set('photoUrl', url);
     } catch (err: any) {
       toast.error('Upload Failed', err?.message ?? 'Could not upload photo');
     }

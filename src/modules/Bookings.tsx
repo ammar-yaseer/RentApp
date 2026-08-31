@@ -14,7 +14,8 @@ import { DatePicker } from '../components/ui/DatePicker';
 import { StatusBadge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { Tabs, SearchInput } from '../components/ui/Tabs';
-import { uid, nowISO, formatCurrency, formatDateTime, daysBetween, isOverdue, cn, compressImage, downloadFile } from '../lib/utils';
+import { uid, nowISO, formatCurrency, formatDateTime, daysBetween, isOverdue, cn, downloadFile } from '../lib/utils';
+import { uploadImage } from '../lib/storage';
 import { bookingToEvent, googleCalendarUrl, eventToICS } from '../lib/googleCalendar';
 
 const STATUSES: BookingStatus[] = ['Inquiry', 'Reserved', 'Confirmed', 'Active', 'Due Return', 'Overdue', 'Completed', 'Cancelled', 'No-show'];
@@ -206,9 +207,9 @@ function BookingDetail({ bookingId, onBack }: { bookingId: string; onBack: () =>
               <p className="text-xs text-slate-500 mb-2">Customer Documents</p>
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                 {booking.customerDocuments.map((doc) => (
-                  <a key={doc.id} href={doc.dataUrl} target="_blank" rel="noreferrer" className="block">
-                    {doc.dataUrl.startsWith('data:image') ? (
-                      <img src={doc.dataUrl} alt={doc.name} className="w-full h-16 object-cover rounded-lg border border-slate-200" />
+                  <a key={doc.id} href={doc.url} target="_blank" rel="noreferrer" className="block">
+                    {doc.url.startsWith('data:image') || doc.url.match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
+                      <img src={doc.url} alt={doc.name} className="w-full h-16 object-cover rounded-lg border border-slate-200" />
                     ) : (
                       <div className="w-full h-16 rounded-lg border border-slate-200 flex items-center justify-center text-xs text-slate-500 bg-white">PDF</div>
                     )}
@@ -397,13 +398,17 @@ export function BookingForm({ booking, onClose, onSave }: { booking: Booking | n
   const handleDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     try {
-      const docs = await Promise.all(files.map(async (file) => ({
-        id: uid('bdoc'),
-        name: file.name,
-        type: 'Customer Document',
-        dataUrl: await compressImage(file),
-        uploadedAt: nowISO(),
-      })));
+      const docs = await Promise.all(files.map(async (file) => {
+        const path = `${form.id ?? uid('bk')}/${uid('bdoc')}`;
+        const url = await uploadImage('booking-documents', path, file);
+        return {
+          id: uid('bdoc'),
+          name: file.name,
+          type: 'Customer Document',
+          url,
+          uploadedAt: nowISO(),
+        };
+      }));
       set('customerDocuments', [...(form.customerDocuments ?? []), ...docs]);
     } catch (err: any) {
       toast.error('Upload Failed', err?.message ?? 'Could not upload file');
@@ -419,8 +424,8 @@ export function BookingForm({ booking, onClose, onSave }: { booking: Booking | n
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const dataUrl = await compressImage(file);
-      set('odometerPhotoOut', dataUrl);
+      const url = await uploadImage('inspection-photos', `${form.id ?? uid('bk')}/odometer-out`, file);
+      set('odometerPhotoOut', url);
     } catch (err: any) {
       toast.error('Upload Failed', err?.message ?? 'Could not upload photo');
     }
@@ -610,8 +615,8 @@ export function BookingForm({ booking, onClose, onSave }: { booking: Booking | n
           <div className="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2">
             {form.customerDocuments.map((doc) => (
               <div key={doc.id} className="relative group">
-                {doc.dataUrl.startsWith('data:image') ? (
-                  <img src={doc.dataUrl} alt={doc.name} className="w-full h-20 object-cover rounded-lg border border-slate-200" />
+                {doc.url.startsWith('data:image') || doc.url.match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
+                  <img src={doc.url} alt={doc.name} className="w-full h-20 object-cover rounded-lg border border-slate-200" />
                 ) : (
                   <div className="w-full h-20 rounded-lg border border-slate-200 flex items-center justify-center text-xs text-slate-500 bg-white">PDF</div>
                 )}
@@ -668,8 +673,8 @@ function InspectionForm({ type, booking, onClose, onSave }: { type: 'Handover' |
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const dataUrl = await compressImage(file);
-      setOdometerPhoto(dataUrl);
+      const url = await uploadImage('inspection-photos', `${booking.id}/odometer-${type.toLowerCase()}`, file);
+      setOdometerPhoto(url);
     } catch (err: any) {
       toast.error('Upload Failed', err?.message ?? 'Could not upload photo');
     }
@@ -679,7 +684,9 @@ function InspectionForm({ type, booking, onClose, onSave }: { type: 'Handover' |
   const handleDamagePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     try {
-      const photos = await Promise.all(files.map(async (file) => await compressImage(file)));
+      const photos = await Promise.all(files.map(async (file) =>
+        await uploadImage('inspection-photos', `${booking.id}/damage-${uid('dmg')}`, file)
+      ));
       set('damagePhotos', [...(form.damagePhotos ?? []), ...photos]);
     } catch (err: any) {
       toast.error('Upload Failed', err?.message ?? 'Could not upload photos');

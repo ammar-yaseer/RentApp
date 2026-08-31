@@ -1,33 +1,54 @@
-import { useState, Fragment } from 'react';
-import { Settings as SettingsIcon, Save, Download, Upload, RotateCcw, Building2, Bell, Calendar, CreditCard, Globe, Users2, Plus, Edit2, Trash2, KeyRound, Power, ExternalLink, X, Eye, FilePlus, Pencil, Trash } from 'lucide-react';
+import { useState, Fragment, useEffect } from 'react';
+import { Save, Download, Upload, RotateCcw, Building2, Bell, Calendar, CreditCard, Globe, Users2, Plus, Edit2, Trash2, KeyRound, Power, ExternalLink, X, Eye, FilePlus, Pencil, Trash } from 'lucide-react';
 import { useStore } from '../data/store';
 import { useToast } from '../components/Toast';
-import type { User, UserRole, ModulePermissions, PermissionAction } from '../types';
+import type { UserRole, ModulePermissions, PermissionAction, Profile } from '../types';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Card, CardHeader, EmptyState } from '../components/ui/Card';
 import { Button, IconButton } from '../components/ui/Button';
 import { Modal, ConfirmDialog } from '../components/ui/Modal';
 import { Field, Input, Select, Textarea } from '../components/ui/Form';
-import { isUserOnline, getCurrentUserId } from '../data/store';
+import { supabase } from '../lib/supabase';
+import { uploadImage } from '../lib/storage';
 import { eventsToICS, bookingToEvent, leasePaymentToEvent, maintenanceToEvent, insuranceToEvent, googleCalendarAuthUrl } from '../lib/googleCalendar';
 import { StatusBadge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
-import { downloadFile, uid, nowISO, formatDateTime, compressImage, cn } from '../lib/utils';
+import { downloadFile, formatDateTime, cn } from '../lib/utils';
 import { useCurrentUser } from '../lib/hooks';
 import { can, emptyPermissions, normalizePermissions, ALL_MODULE_KEYS } from '../lib/permissions';
 import { NAV_ITEMS } from '../components/nav';
 
 export default function Settings() {
-  const { db, setSettings, exportData, importData, resetData, update } = useStore();
+  const { db, setSettings, exportData, importData, resetData } = useStore();
   const toast = useToast();
   const currentUser = useCurrentUser();
   const [form, setForm] = useState(db.settings);
   const [saved, setSaved] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
-  const [userModal, setUserModal] = useState<User | null | 'new'>(null);
+  const [userModal, setUserModal] = useState<Profile | null | 'new'>(null);
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
-  const [pwdModal, setPwdModal] = useState<User | null>(null);
+  const [pwdModal, setPwdModal] = useState<Profile | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const set = (k: keyof typeof form, v: any) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Load profiles from Supabase
+  useEffect(() => {
+    supabase.from('profiles').select('*').order('created_at', { ascending: true }).then(({ data }) => {
+      if (data) {
+        const camelProfiles = data.map((row: any) => ({
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          role: row.role,
+          permissions: row.permissions ?? {},
+          active: row.active,
+          lastLogin: row.last_login,
+          createdAt: row.created_at,
+        })) as Profile[];
+        setProfiles(camelProfiles);
+      }
+    });
+  }, [userModal, deleteUserId, pwdModal]);
 
   const canCreateUser = can(currentUser, 'settings', 'create');
   const canEditUser = can(currentUser, 'settings', 'edit');
@@ -69,8 +90,11 @@ export default function Settings() {
                   <input type="file" accept="image/*" onChange={async (e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      try { const dataUrl = await compressImage(file); set('logoUrl', dataUrl); toast.success('Logo Updated'); }
-                      catch (err: any) { toast.error('Upload Failed', err?.message ?? 'Could not upload logo'); }
+                      try {
+                        const url = await uploadImage('system-assets', 'logo.png', file);
+                        set('logoUrl', url);
+                        toast.success('Logo Updated');
+                      } catch (err: any) { toast.error('Upload Failed', err?.message ?? 'Could not upload logo'); }
                     }
                   }} className="hidden" />
                 </label>
@@ -181,51 +205,59 @@ export default function Settings() {
         {/* User Management */}
         <Card className="lg:col-span-2">
           <CardHeader title="User Accounts" subtitle="Create, edit, activate/deactivate system users" action={canCreateUser ? <Button size="sm" icon={<Plus size={14} />} onClick={() => setUserModal('new')}>Add User</Button> : undefined} />
-          {db.users.length === 0 ? (
+          {profiles.length === 0 ? (
             <EmptyState icon={<Users2 size={40} />} title="No users" subtitle="Add your first system user" action={canCreateUser ? <Button icon={<Plus size={16} />} onClick={() => setUserModal('new')}>Add User</Button> : undefined} />
           ) : (
             <DataTable
               columns={[
-                { key: 'name', header: 'Name', render: (u) => (
+                { key: 'name', header: 'Name', render: (u: Profile) => (
                   <span className="font-medium flex items-center gap-2">
-                    <span className={cn('w-2 h-2 rounded-full', isUserOnline(u.id) ? 'bg-green-500' : 'bg-slate-300')} title={isUserOnline(u.id) ? 'Online now' : 'Offline'} />
+                    <span className={cn('w-2 h-2 rounded-full', u.active ? 'bg-green-500' : 'bg-slate-300')} title={u.active ? 'Active' : 'Inactive'} />
                     {u.name}
-                    {getCurrentUserId() === u.id && <span className="text-[10px] text-brand-600 font-normal">(you)</span>}
+                    {currentUser?.id === u.id && <span className="text-[10px] text-brand-600 font-normal">(you)</span>}
                   </span>
                 ) },
-                { key: 'email', header: 'Email', render: (u) => u.email },
-                { key: 'role', header: 'Role', render: (u) => <StatusBadge status={u.role} /> },
-                { key: 'modules', header: 'Access', render: (u) => {
-                  const granted = u.permissions ? ALL_MODULE_KEYS.filter((k) => u.permissions![k]?.view).length : null;
+                { key: 'email', header: 'Email', render: (u: Profile) => u.email },
+                { key: 'role', header: 'Role', render: (u: Profile) => <StatusBadge status={u.role} /> },
+                { key: 'modules', header: 'Access', render: (u: Profile) => {
+                  const granted = u.permissions ? ALL_MODULE_KEYS.filter((k) => u.permissions[k]?.view).length : 0;
                   return (
                     <span className="text-xs text-slate-600">
-                      {granted === null ? <span className="text-brand-600 font-medium">All (legacy)</span> : `${granted}/${ALL_MODULE_KEYS.length} modules`}
+                      {granted}/{ALL_MODULE_KEYS.length} modules
                     </span>
                   );
                 } },
-                { key: 'lastLogin', header: 'Last Login', render: (u) => u.lastLogin ? formatDateTime(u.lastLogin) : 'Never' },
-                { key: 'status', header: 'Status', render: (u) => (
+                { key: 'lastLogin', header: 'Last Login', render: (u: Profile) => u.lastLogin ? formatDateTime(u.lastLogin) : 'Never' },
+                { key: 'status', header: 'Status', render: (u: Profile) => (
                   <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
-                    isUserOnline(u.id) ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                    <span className={cn('w-1.5 h-1.5 rounded-full', isUserOnline(u.id) ? 'bg-green-500 animate-pulse' : 'bg-slate-400')} />
-                    {isUserOnline(u.id) ? 'Online' : (u.active ? 'Active' : 'Inactive')}
+                    u.active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                    <span className={cn('w-1.5 h-1.5 rounded-full', u.active ? 'bg-green-500' : 'bg-slate-400')} />
+                    {u.active ? 'Active' : 'Inactive'}
                   </span>
                 ) },
-                { key: 'actions', header: '', align: 'right', render: (u) => (
+                { key: 'actions', header: '', align: 'right', render: (u: Profile) => (
                   <div className="flex gap-1 justify-end">
                     {canEditUser && <IconButton icon={<KeyRound size={14} />} label="Set Password" onClick={() => setPwdModal(u)} />}
                     {canEditUser && <IconButton icon={<Edit2 size={14} />} label="Edit" onClick={() => setUserModal(u)} />}
                     {canEditUser && (u.active ? (
-                      <IconButton icon={<Power size={14} />} label="Deactivate" onClick={() => { update('users', (arr) => arr.map((x) => x.id === u.id ? { ...x, active: false } : x), { action: 'UPDATE', entity: 'User', entityId: u.id, after: 'active=false' }); toast.warning('User Deactivated', u.name); }} />
+                      <IconButton icon={<Power size={14} />} label="Deactivate" onClick={async () => {
+                        await supabase.rpc('admin_toggle_user_active', { p_user_id: u.id, p_active: false });
+                        toast.warning('User Deactivated', u.name);
+                        setUserModal(null);
+                      }} />
                     ) : (
-                      <IconButton icon={<Power size={14} />} label="Activate" onClick={() => { update('users', (arr) => arr.map((x) => x.id === u.id ? { ...x, active: true } : x), { action: 'UPDATE', entity: 'User', entityId: u.id, after: 'active=true' }); toast.success('User Activated', u.name); }} />
+                      <IconButton icon={<Power size={14} />} label="Activate" onClick={async () => {
+                        await supabase.rpc('admin_toggle_user_active', { p_user_id: u.id, p_active: true });
+                        toast.success('User Activated', u.name);
+                        setUserModal(null);
+                      }} />
                     ))}
                     {canDeleteUser && <IconButton icon={<Trash2 size={14} />} label="Delete" onClick={() => setDeleteUserId(u.id)} />}
                   </div>
                 ) },
               ]}
-              rows={db.users}
-              rowKey={(u) => u.id}
+              rows={profiles}
+              rowKey={(u: Profile) => u.id}
             />
           )}
         </Card>
@@ -245,25 +277,49 @@ export default function Settings() {
       <ConfirmDialog open={resetOpen} onClose={() => setResetOpen(false)} onConfirm={() => { resetData(); toast.info('Data Reset', 'Restored to seed data'); }}
         title="Reset all data?" message="This will erase all current data and restore the original seed data. This cannot be undone." confirmLabel="Reset" danger />
 
-      <ConfirmDialog open={!!deleteUserId} onClose={() => setDeleteUserId(null)} onConfirm={() => {
-        if (deleteUserId) { update('users', (arr) => arr.filter((u) => u.id !== deleteUserId), { action: 'DELETE', entity: 'User', entityId: deleteUserId }); toast.success('User Deleted'); }
+      <ConfirmDialog open={!!deleteUserId} onClose={() => setDeleteUserId(null)} onConfirm={async () => {
+        if (deleteUserId) {
+          // Delete the auth user (cascades to profile via FK)
+          const { error } = await supabase.rpc('admin_toggle_user_active', { p_user_id: deleteUserId, p_active: false });
+          // Note: full deletion requires service-role access. For now, deactivate.
+          if (!error) toast.success('User Deactivated', 'User has been deactivated');
+          else toast.error('Delete Failed', error.message);
+        }
         setDeleteUserId(null);
-      }} title="Delete user?" message="Remove this user account?" confirmLabel="Delete" danger />
+      }} title="Delete user?" message="This will deactivate the user. Full deletion requires dashboard access." confirmLabel="Deactivate" danger />
 
-      {userModal !== null && <UserForm user={userModal === 'new' ? null : userModal} onClose={() => setUserModal(null)} onSave={(u) => {
+      {userModal !== null && <UserForm user={userModal === 'new' ? null : userModal} onClose={() => setUserModal(null)} onSave={async (u) => {
         if (userModal !== 'new') {
-          update('users', (arr) => arr.map((x) => x.id === u.id ? u : x), { action: 'UPDATE', entity: 'User', entityId: u.id });
-          toast.success('User Updated', u.name);
+          // Update existing profile
+          const { error } = await supabase.from('profiles').update({
+            name: u.name,
+            role: u.role,
+            permissions: u.permissions,
+          }).eq('id', u.id);
+          if (error) toast.error('Update Failed', error.message);
+          else toast.success('User Updated', u.name);
         } else {
-          const newU = { ...u, id: uid('usr'), createdAt: nowISO(), active: true };
-          update('users', (arr) => [...arr, newU], { action: 'CREATE', entity: 'User', entityId: newU.id });
-          toast.success('User Created', `${u.name} (${u.role})`);
+          // Create new user via admin RPC
+          const { error } = await supabase.rpc('admin_create_user', {
+            p_email: u.email,
+            p_password: (u as any).password || 'changeme123',
+            p_name: u.name,
+            p_role: u.role,
+            p_permissions: u.permissions,
+          });
+          if (error) toast.error('Create Failed', error.message);
+          else toast.success('User Created', `${u.name} (${u.role})`);
         }
         setUserModal(null);
       }} />}
 
-      {pwdModal && <PasswordForm user={pwdModal} onClose={() => setPwdModal(null)} onSave={() => {
-        toast.success('Password Updated', `Credentials set for ${pwdModal.name}`);
+      {pwdModal && <PasswordForm user={pwdModal} onClose={() => setPwdModal(null)} onSave={async (pwd: string) => {
+        const { error } = await supabase.rpc('admin_update_user_password', {
+          p_user_id: pwdModal.id,
+          p_password: pwd,
+        });
+        if (error) toast.error('Password Update Failed', error.message);
+        else toast.success('Password Updated', `Credentials set for ${pwdModal.name}`);
         setPwdModal(null);
       }} />}
     </div>
@@ -279,19 +335,17 @@ const PERMISSION_ACTIONS: { key: PermissionAction; label: string; icon: React.Re
   { key: 'delete', label: 'Delete', icon: <Trash size={12} /> },
 ];
 
-function UserForm({ user, onClose, onSave }: { user: User | null; onClose: () => void; onSave: (u: User) => void }) {
+function UserForm({ user, onClose, onSave }: { user: Profile | null; onClose: () => void; onSave: (u: Profile & { password?: string }) => void }) {
   // New users start with empty permissions (admin must explicitly grant access).
-  // Existing users without a permissions map are normalized to empty so the admin
-  // can curate access on edit. (Legacy "all access" behaviour is preserved at
-  // runtime via the `can()` helper when `user.permissions` is undefined, but
-  // saving the form persists an explicit map.)
-  const [form, setForm] = useState<Partial<User>>(() => ({
+  const [form, setForm] = useState<Partial<Profile> & { password?: string }>(() => ({
     role: 'Rental Staff',
     active: true,
+    name: user?.name ?? '',
+    email: user?.email ?? '',
     ...(user ?? {}),
     permissions: normalizePermissions(user?.permissions),
   }));
-  const set = (k: keyof User, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
   const permissions = form.permissions ?? emptyPermissions();
   const setPermission = (moduleKey: string, action: PermissionAction, value: boolean) => {
@@ -323,13 +377,13 @@ function UserForm({ user, onClose, onSave }: { user: User | null; onClose: () =>
 
   return (
     <Modal open onClose={onClose} title={user ? 'Edit User' : 'Add User'} size="lg"
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => onSave(form as User)}>Save</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => onSave(form as Profile & { password?: string })}>Save</Button></>}>
       <div className="space-y-4">
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Full Name" required><Input value={form.name ?? ''} onChange={(e) => set('name', e.target.value)} /></Field>
-          <Field label="Email / Username" required><Input value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="user@rentflow" /></Field>
+          <Field label="Email" required><Input value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="user@rentflow" disabled={!!user} /></Field>
           <Field label="Role" required><Select value={form.role ?? 'Rental Staff'} onChange={(e) => set('role', e.target.value as UserRole)}>{ROLES.map((r) => <option key={r}>{r}</option>)}</Select></Field>
-          {!user && <Field label="Initial Password" hint="User can change this later"><Input type="password" value={(form as any).password ?? ''} onChange={(e) => set('password' as any, e.target.value)} /></Field>}
+          {!user && <Field label="Initial Password" hint="User can change this later"><Input type="password" value={form.password ?? ''} onChange={(e) => set('password', e.target.value)} /></Field>}
         </div>
 
         <div>
@@ -406,18 +460,17 @@ function UserForm({ user, onClose, onSave }: { user: User | null; onClose: () =>
   );
 }
 
-function PasswordForm({ user, onClose, onSave }: { user: User; onClose: () => void; onSave: () => void }) {
+function PasswordForm({ user, onClose, onSave }: { user: Profile; onClose: () => void; onSave: (pwd: string) => void }) {
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
   const mismatch = pwd && confirm && pwd !== confirm;
   return (
     <Modal open onClose={onClose} title={`Set Password — ${user.name}`} size="sm"
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!pwd || !!mismatch} onClick={onSave}>Update Password</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!pwd || !!mismatch} onClick={() => onSave(pwd)}>Update Password</Button></>}>
       <div className="space-y-3">
         <Field label="New Password" required><Input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} /></Field>
         <Field label="Confirm Password" required><Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
         {mismatch && <p className="text-xs text-red-600">Passwords do not match</p>}
-        <p className="text-xs text-slate-500">In the frontend prototype, passwords are not enforced. When the backend is connected, this will use Supabase Auth.</p>
       </div>
     </Modal>
   );

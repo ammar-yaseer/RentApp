@@ -1,11 +1,11 @@
-// NOTE: This component uses localStorage for state. When migrating to Supabase,
-// replace `useStore()` localStorage calls with Supabase real-time subscriptions.
-// The presence/online indicator should use Supabase presence channels.
+// AppShell — main layout with sidebar, header, and mobile nav.
+// Uses Supabase Auth for the current user (no more localStorage user switching).
 import { useState, useEffect, useMemo } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, Bell, MoreHorizontal, Car, ChevronLeft, ChevronRight, ChevronDown, Check } from 'lucide-react';
+import { Menu, X, Bell, MoreHorizontal, Car, ChevronLeft, ChevronRight, ChevronDown, LogOut } from 'lucide-react';
 import { MOBILE_PRIMARY, type NavItem } from './nav';
-import { useStore, setPresence, getCurrentUserId } from '../data/store';
+import { useStore } from '../data/store';
+import { useAuth } from '../lib/auth';
 import { useCurrentUser } from '../lib/hooks';
 import { visibleNavItems, canView, hasAnyAccess } from '../lib/permissions';
 import { cn, formatDateTime } from '../lib/utils';
@@ -17,6 +17,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { db } = useStore();
   const currentUser = useCurrentUser();
+  const { signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -36,15 +37,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setUserMenuOpen(false);
   }, [location.pathname]);
 
-  const switchUser = (userId: string) => {
-    setPresence(userId);
-    setUserMenuOpen(false);
-    const next = visibleNavItems(db.users.find((u) => u.id === userId) ?? null)[0];
-    navigate(next?.path ?? '/');
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
   };
-
-  const activeUsers = db.users.filter((u) => u.active);
-  const currentUserId = getCurrentUserId();
 
   return (
     <div className="min-h-dvh flex">
@@ -109,7 +105,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button
                 onClick={() => setUserMenuOpen((o) => !o)}
                 className="flex items-center gap-2 rounded-lg hover:bg-slate-50 p-1 -m-1 transition-colors"
-                aria-label="Switch user"
+                aria-label="User menu"
               >
                 {db.settings.logoUrl ? (
                   <img src={db.settings.logoUrl} alt="Logo" className="w-8 h-8 rounded-lg object-contain" />
@@ -127,27 +123,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {userMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
-                  <div className="absolute right-0 top-12 z-20 w-56 max-w-[calc(100vw-1rem)] bg-white rounded-lg shadow-lg border border-slate-200 py-1 max-h-80 overflow-y-auto">
-                    <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Switch active user</p>
-                    {activeUsers.map((u) => (
-                      <button
-                        key={u.id}
-                        onClick={() => switchUser(u.id)}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-slate-50"
-                      >
-                        <span className={cn('w-2 h-2 rounded-full shrink-0', u.id === currentUserId ? 'bg-brand-600' : 'bg-slate-300')} />
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-xs font-medium text-slate-900 truncate">{u.name}</span>
-                          <span className="block text-[10px] text-slate-500 truncate">{u.role}</span>
-                        </span>
-                        {u.id === currentUserId && <Check size={14} className="text-brand-600 shrink-0" />}
-                      </button>
-                    ))}
+                  <div className="absolute right-0 top-12 z-20 w-56 max-w-[calc(100vw-1rem)] bg-white rounded-lg shadow-lg border border-slate-200 py-1">
+                    <div className="px-3 py-2 border-b border-slate-100">
+                      <p className="text-xs font-semibold text-slate-900 truncate">{currentUser?.name ?? 'Admin'}</p>
+                      <p className="text-[10px] text-slate-500 truncate">{currentUser?.email ?? ''}</p>
+                    </div>
                     {canView(currentUser, 'settings') && (
-                      <NavLink to="/settings" onClick={() => setUserMenuOpen(false)} className="block px-3 py-2 text-xs text-brand-600 hover:bg-brand-50 border-t border-slate-100 mt-1">
+                      <NavLink to="/settings" onClick={() => setUserMenuOpen(false)} className="block px-3 py-2 text-xs text-brand-600 hover:bg-brand-50 border-t border-slate-100">
                         Manage users in Settings
                       </NavLink>
                     )}
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50 border-t border-slate-100"
+                    >
+                      <LogOut size={14} /> Sign Out
+                    </button>
                   </div>
                 </>
               )}

@@ -1,0 +1,30 @@
+-- 0010_cron.sql (OPTIONAL)
+-- Schedule the overdue-alerts edge function to run every 15 minutes.
+-- This requires pg_cron + pg_net extensions to be enabled.
+-- If they are not available on your Supabase plan, use the dashboard instead:
+--   Supabase Dashboard → Edge Functions → overdue-alerts → Schedules → Add
+
+-- Uncomment the lines below if pg_cron and pg_net are enabled:
+-- select cron.schedule(
+--   'rentflow-overdue-alerts',
+--   '*/15 * * * *',
+--   $$ select net.http_post(
+--     url := 'https://<your-project>.supabase.co/functions/v1/overdue-alerts',
+--     headers := jsonb_build_object(
+--       'Authorization', 'Bearer <service-role-key>'
+--     ),
+--     body := '{}'::jsonb
+--   ) $$
+-- );
+
+-- select cron.schedule(
+--   'rentflow-notification-sender',
+--   '*/5 * * * *',
+--   $$ select net.http_post(
+--     url := 'https://<your-project>.supabase.co/functions/v1/notification-sender',
+--     headers := jsonb_build_object(
+--       'Authorization', 'Bearer <service-role-key>'
+--     ),
+--     body := '{}'::jsonb
+--   ) $$
+-- );
