@@ -100,7 +100,7 @@ npm install -g supabase
 Login and link your project:
 ```bash
 supabase login
-supabase link --project-ref your-project-ref
+ supabase link--project-ref your-project-ref
 ```
 
 Deploy the four edge functions:

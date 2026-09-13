@@ -205,6 +205,18 @@ create table if not exists documents (
   created_at timestamptz not null default now()
 );
 
+-- === Vendors ===
+create table if not exists vendors (
+  id text primary key,
+  name text not null,
+  type vendor_type not null default 'Other',
+  phone text,
+  email text,
+  address text,
+  outstanding_balance numeric default 0,
+  created_at timestamptz not null default now()
+);
+
 -- === Expenses ===
 create table if not exists expenses (
   id text primary key,
@@ -223,18 +235,6 @@ create table if not exists expenses (
   approval_status expense_approval_status default 'Pending',
   tax_amount numeric,
   recurring boolean default false,
-  created_at timestamptz not null default now()
-);
-
--- === Vendors ===
-create table if not exists vendors (
-  id text primary key,
-  name text not null,
-  type vendor_type not null default 'Other',
-  phone text,
-  email text,
-  address text,
-  outstanding_balance numeric default 0,
   created_at timestamptz not null default now()
 );
 
